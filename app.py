@@ -138,68 +138,79 @@ if uploaded_file is not None:
                     continue
                     
                 # 严谨的正则判断还原(R)和非还原(NR)
-                is_reduced = False
                 sample_upper = str(current_sample).upper()
-                if re.search(r'\bR\b|-R\b', sample_upper):
+                if re.search(r'\bNR\b|-NR\b', sample_upper):
+                    is_reduced = False
+                elif re.search(r'\bR\b|-R\b', sample_upper):
                     is_reduced = True
+                else:
+                    is_reduced = False  # 兜底默认为 NR
                     
                 result_row = {
                     'Sample Name': current_sample,
                     'Vial': current_vial
                 }
                 
-                # 浓度过滤标志：除第一行（系统峰）外，所有峰的 Area 最大值不超过 230
-                is_low_concentration = False
-                if len(peaks_df) > 1:
-                    max_area_excluding_first = peaks_df.iloc[1:]['Area'].max()
-                    if pd.isna(max_area_excluding_first) or max_area_excluding_first <= 230:
-                        is_low_concentration = True
-                else:
-                    # 如果只有一个峰（连主峰都没有，只有系统峰），也视为浓度太低
-                    is_low_concentration = True
-                
                 if not is_reduced:
                     # 非还原(NR)逻辑
-                    if is_low_concentration:
-                        result_row['Fragments'] = 'N/A'
-                        result_row['NR-MP/IgG'] = 'N/A'
+                    max_purity = peaks_df['Purity'].max()
+                    
+                    # 核心重构：精准定位“需要汇报的主峰(IgG)”
+                    # 按照领导指示：主峰通常是最后的那个峰（通常在 28s 之后）
+                    late_peaks = peaks_df[peaks_df['Migration Time'] >= 28.0]
+                    
+                    mp_area = 0.0 # 记录真正主峰(IgG)的面积
+                    if not late_peaks.empty and late_peaks['Purity'].max() >= 0.2:
+                        # 形态1：存在真实的晚出峰IgG（即使它降解得很严重，只要纯度>0.2%，它就是我们要找的目标）
+                        mp_idx = late_peaks['Purity'].idxmax()
+                        mp_row = peaks_df.loc[mp_idx]
+                        mp_time = mp_row['Migration Time']
+                        mp_purity = mp_row['Purity']
+                        mp_area = float(mp_row['Area'])
+                        # Fragments 为该最终主峰之前的所有峰（主峰后面的碎片峰坚决不计入）
+                        fragments = peaks_df[peaks_df['Migration Time'] < mp_time]['Purity'].sum()
+                    else:
+                        # 形态2：完全没有晚出峰，属于早出峰多主峰形态 (如 20s 左右)
+                        candidates = peaks_df[peaks_df['Purity'] > max_purity * 0.2].sort_values('Migration Time')
+                        if not candidates.empty:
+                            mp_purity = candidates['Purity'].sum()
+                            mp_area = float(candidates['Area'].sum())
+                            first_mp_time = candidates.iloc[0]['Migration Time']
+                            # Fragments 为第一个主峰之前的所有碎峰
+                            fragments = peaks_df[peaks_df['Migration Time'] < first_mp_time]['Purity'].sum()
+                        else:
+                            # 兜底逻辑
+                            mp_idx = peaks_df['Purity'].idxmax()
+                            mp_time = peaks_df.loc[mp_idx, 'Migration Time']
+                            mp_purity = peaks_df.loc[mp_idx, 'Purity']
+                            mp_area = float(peaks_df.loc[mp_idx, 'Area'])
+                            fragments = peaks_df[peaks_df['Migration Time'] < mp_time]['Purity'].sum()
+                    
+                    # 浓度过滤：真正的汇报主峰 (IgG) 的 Area 不超过 415
+                    if pd.isna(mp_area) or mp_area <= 415.0:
+                        result_row['Fragments'] = '结果见图谱，供参考'
+                        result_row['NR-MP/IgG'] = '结果见图谱，供参考'
                         all_results.append(result_row)
                         continue
-
-                    max_purity = peaks_df['Purity'].max()
-                    # 识别主峰候选群 (纯度大于最大峰的 20% 视为疑似主峰)
-                    candidates = peaks_df[peaks_df['Purity'] > max_purity * 0.2].sort_values('Migration Time')
-                    
-                    if not candidates.empty:
-                        avg_time = candidates['Migration Time'].mean()
-                        if avg_time >= 30.0:
-                            # 晚出峰形态 (如 35s 左右)：只认最后一个为主峰
-                            mp_row = candidates.iloc[-1]
-                            mp_time = mp_row['Migration Time']
-                            mp_purity = mp_row['Purity']
-                            # Fragments 为该最终主峰之前的所有峰（主峰后面的碎片峰坚决不计入）
-                            fragments = peaks_df[peaks_df['Migration Time'] < mp_time]['Purity'].sum()
-                        else:
-                            # 早出峰形态 (如 20s 左右)：多主峰，将所有主峰相加
-                            mp_purity = candidates['Purity'].sum()
-                            first_mp_time = candidates.iloc[0]['Migration Time']
-                            # Fragments 为第一个主峰之前的所有碎峰（严格遵守：主峰组后面的碎片峰不计入计算）
-                            fragments = peaks_df[peaks_df['Migration Time'] < first_mp_time]['Purity'].sum()
-                    else:
-                        # 兜底逻辑
-                        mp_idx = peaks_df['Purity'].idxmax()
-                        mp_time = peaks_df.loc[mp_idx, 'Migration Time']
-                        mp_purity = peaks_df.loc[mp_idx, 'Purity']
-                        fragments = peaks_df[peaks_df['Migration Time'] < mp_time]['Purity'].sum()
-                    
+                        
                     result_row['Fragments'] = round(fragments, 1)
                     result_row['NR-MP/IgG'] = round(mp_purity, 1)
                 else:
                     # 还原(R)逻辑：处理 LC/HC 类型 和 特殊 R-MP 类型
-                    if is_low_concentration:
-                        result_row['LC+HC'] = 'N/A'
-                        result_row['NGHC'] = 'N/A'
-                        result_row['R-MP'] = 'N/A'
+                    # 浓度过滤标志：除第一行（系统峰）外，所有峰的 Area 最大值不超过 415
+                    is_r_low_concentration = False
+                    if len(peaks_df) > 1:
+                        max_area_excluding_first = peaks_df.iloc[1:]['Area'].max()
+                        if pd.isna(max_area_excluding_first) or max_area_excluding_first <= 415:
+                            is_r_low_concentration = True
+                    else:
+                        # 如果只有一个峰（连主峰都没有，只有系统峰），也视为浓度太低
+                        is_r_low_concentration = True
+
+                    if is_r_low_concentration:
+                        result_row['LC+HC'] = '结果见图谱，供参考'
+                        result_row['NGHC'] = '结果见图谱，供参考'
+                        result_row['R-MP'] = '结果见图谱，供参考'
                         all_results.append(result_row)
                         continue
 
