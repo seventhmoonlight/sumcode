@@ -6,6 +6,7 @@ import re
 from openai import OpenAI
 import concurrent.futures
 import io
+from decimal import Decimal, ROUND_HALF_UP
 
 # 页面配置
 st.set_page_config(page_title="CE-SDS 自动提取器", page_icon="🧪", layout="centered")
@@ -58,6 +59,19 @@ def parse_page_with_llm(client, page_num, page_text):
         return page_num, json.loads(result)
     except Exception as e:
         return page_num, None
+
+def format_result_value(value):
+    if isinstance(value, str):
+        return value
+    if pd.isna(value):
+        return value
+    try:
+        return f"{float(value):.1f}"
+    except (TypeError, ValueError):
+        return value
+
+def round_half_up_1(value):
+    return float(Decimal(str(value)).quantize(Decimal('0.1'), rounding=ROUND_HALF_UP))
 
 # UI 标题与说明
 st.title("🧪 LabChip CE-SDS 数据自动提取工具")
@@ -193,8 +207,8 @@ if uploaded_file is not None:
                         all_results.append(result_row)
                         continue
                         
-                    result_row['Fragments'] = round(fragments, 1)
-                    result_row['NR-MP/IgG'] = round(mp_purity, 1)
+                    result_row['Fragments'] = round_half_up_1(fragments)
+                    result_row['NR-MP/IgG'] = round_half_up_1(mp_purity)
                 else:
                     # 还原(R)逻辑：处理 LC/HC 类型 和 特殊 R-MP 类型
                     # 浓度过滤标志：除第一行（系统峰）外，所有峰的 Area 最大值不超过 415
@@ -249,13 +263,13 @@ if uploaded_file is not None:
                                     (peaks_df['Migration Time'] <= first_hc_time - 0.2)
                                 ]
                                 
-                                # 2. 动态纯度阈值：真实 NGHC 纯度通常在 0.3% ~ 5.0% 之间，剔除背景噪音
+                                # 2. 动态纯度阈值：对这批真实样本，NGHC 可低至 0.1% 左右
                                 # 强制规则：对于名称中包含 'REP' 的样品，跳过纯度下限阈值，只要在时间窗内就算 NGHC
                                 if 'REP' in sample_upper:
                                     valid_nghc = nghc_candidates[nghc_candidates['Purity'] <= 5.0]
                                 else:
                                     valid_nghc = nghc_candidates[
-                                        (nghc_candidates['Purity'] >= 0.3) & 
+                                        (nghc_candidates['Purity'] >= 0.1) & 
                                         (nghc_candidates['Purity'] <= 5.0)
                                     ]
                                 
@@ -263,27 +277,27 @@ if uploaded_file is not None:
                                 if not valid_nghc.empty:
                                     nghc_purity = valid_nghc['Purity'].sum()
                                     
-                                result_row['NGHC'] = round(nghc_purity, 1)
+                                result_row['NGHC'] = round_half_up_1(nghc_purity)
                                 
                                 # LC+HC 等于有效峰总和扣除掉那些被判定为 NGHC 且被算入总和的峰
                                 for _, row in valid_nghc.iterrows():
                                     if row['Purity'] >= 2.0: 
                                         lc_hc_total -= row['Purity']
                                         
-                                result_row['LC+HC'] = round(lc_hc_total, 1)
+                                result_row['LC+HC'] = round_half_up_1(lc_hc_total)
                             else:
                                 # 没有明显的 LC/HC 断层，属于连续的 R-MP 多峰形态
                                 r_mp_purity = candidates['Purity'].sum()
-                                result_row['R-MP'] = round(r_mp_purity, 1)
+                                result_row['R-MP'] = round_half_up_1(r_mp_purity)
                         else:
                             # 只有一个主峰的情况的兜底逻辑
                             first_major_time = candidates.iloc[0]['Migration Time']
                             if first_major_time >= 22.0:
-                                result_row['R-MP'] = round(candidates.iloc[0]['Purity'], 1)
+                                result_row['R-MP'] = round_half_up_1(candidates.iloc[0]['Purity'])
                             else:
                                 # 同样放宽加和基数
                                 valid_sum_peaks = peaks_df[peaks_df['Purity'] >= 2.0]
-                                result_row['LC+HC'] = round(valid_sum_peaks['Purity'].sum(), 1)
+                                result_row['LC+HC'] = round_half_up_1(valid_sum_peaks['Purity'].sum())
                                 result_row['NGHC'] = 0.0
                         
                 all_results.append(result_row)
@@ -292,25 +306,29 @@ if uploaded_file is not None:
                 st.error("未能计算出任何有效结果，请检查 PDF 格式。")
             else:
                 df_all = pd.DataFrame(all_results)
+                formatted_df_all = df_all.copy()
+                for col in formatted_df_all.columns:
+                    if col not in ['Sample Name', 'Vial']:
+                        formatted_df_all[col] = formatted_df_all[col].apply(format_result_value)
                 
                 # 将数据写入内存中的 Excel
                 output_buffer = io.BytesIO()
                 with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
                     has_data = False
-                    if 'Fragments' in df_all.columns:
-                        df_nr = df_all[['Sample Name', 'Vial', 'Fragments', 'NR-MP/IgG']].dropna(subset=['Fragments', 'NR-MP/IgG'])
+                    if 'Fragments' in formatted_df_all.columns:
+                        df_nr = formatted_df_all[['Sample Name', 'Vial', 'Fragments', 'NR-MP/IgG']].dropna(subset=['Fragments', 'NR-MP/IgG'])
                         if not df_nr.empty:
                             df_nr.to_excel(writer, sheet_name='Non-Reduced (NR)', index=False)
                             has_data = True
                     
-                    if 'LC+HC' in df_all.columns or 'R-MP' in df_all.columns:
+                    if 'LC+HC' in formatted_df_all.columns or 'R-MP' in formatted_df_all.columns:
                         cols_r = ['Sample Name', 'Vial']
-                        if 'LC+HC' in df_all.columns: cols_r.append('LC+HC')
-                        if 'NGHC' in df_all.columns: cols_r.append('NGHC')
-                        if 'R-MP' in df_all.columns: cols_r.append('R-MP')
+                        if 'LC+HC' in formatted_df_all.columns: cols_r.append('LC+HC')
+                        if 'NGHC' in formatted_df_all.columns: cols_r.append('NGHC')
+                        if 'R-MP' in formatted_df_all.columns: cols_r.append('R-MP')
                         
-                        cols_r = [c for c in cols_r if c in df_all.columns]
-                        df_r = df_all[cols_r].dropna(subset=[c for c in cols_r if c not in ['Sample Name', 'Vial']], how='all')
+                        cols_r = [c for c in cols_r if c in formatted_df_all.columns]
+                        df_r = formatted_df_all[cols_r].dropna(subset=[c for c in cols_r if c not in ['Sample Name', 'Vial']], how='all')
                         if not df_r.empty:
                             df_r.to_excel(writer, sheet_name='Reduced (R)', index=False)
                             has_data = True
@@ -330,7 +348,7 @@ if uploaded_file is not None:
                     
                     # 页面预览
                     st.markdown("### 📊 数据预览 (前 5 行)")
-                    st.dataframe(df_all.head())
+                    st.dataframe(formatted_df_all.head())
                 else:
                     st.warning("没有提取到有效的 R 或 NR 数据。")
                     
