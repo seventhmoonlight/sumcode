@@ -317,6 +317,10 @@ if uploaded_file is not None:
                     has_data = False
                     if 'Fragments' in formatted_df_all.columns:
                         df_nr = formatted_df_all[['Sample Name', 'Vial', 'Fragments', 'NR-MP/IgG']].dropna(subset=['Fragments', 'NR-MP/IgG'])
+                        df_nr = df_nr.rename(columns={
+                            'Fragments': 'Fragments%',
+                            'NR-MP/IgG': 'NR-MP/IgG%'
+                        })
                         if not df_nr.empty:
                             df_nr.to_excel(writer, sheet_name='Non-Reduced (NR)', index=False)
                             has_data = True
@@ -329,6 +333,11 @@ if uploaded_file is not None:
                         
                         cols_r = [c for c in cols_r if c in formatted_df_all.columns]
                         df_r = formatted_df_all[cols_r].dropna(subset=[c for c in cols_r if c not in ['Sample Name', 'Vial']], how='all')
+                        df_r = df_r.rename(columns={
+                            'LC+HC': 'LC+HC%',
+                            'NGHC': 'NGHC%',
+                            'R-MP': 'R-MP%'
+                        })
                         if not df_r.empty:
                             df_r.to_excel(writer, sheet_name='Reduced (R)', index=False)
                             has_data = True
