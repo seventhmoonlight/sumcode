@@ -12,7 +12,7 @@ from decimal import Decimal, ROUND_HALF_UP
 st.set_page_config(page_title="CE-SDS 自动提取器", page_icon="🧪", layout="centered")
 
 # 配置默认 DeepSeek API
-DEFAULT_API_KEY = "sk-3c1f8c2176694867999798d821f5c214"
+DEFAULT_API_KEY = "sk-7e3a55feab1e48908c0d944f8792458e"
 
 def parse_page_with_llm(client, page_num, page_text):
     prompt = """
@@ -45,7 +45,7 @@ def parse_page_with_llm(client, page_num, page_text):
     
     try:
         response = client.chat.completions.create(
-            model="deepseek-chat",
+            model="deepseek-v4-pro",
             messages=[
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": f"页面文本如下：\n{page_text}"}
@@ -100,7 +100,7 @@ if uploaded_file is not None:
                 total_pages = len(pages)
                 status_text.info(f"成功读取 PDF，共 {total_pages} 页。正在提取文本并发送给大模型处理...")
                 
-                client = OpenAI(api_key=api_key_input, base_url="https://api.deepseek.com")
+                client = OpenAI(api_key=api_key_input, base_url="https://dashscope.aliyuncs.com/compatible-mode/v1")
                 
                 # 提取纯文本
                 texts = [(i+1, p.extract_text()) for i, p in enumerate(pages) if p.extract_text()]
