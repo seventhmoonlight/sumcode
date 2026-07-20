@@ -174,7 +174,16 @@ if uploaded_file is not None:
                     late_peaks = peaks_df[peaks_df['Migration Time'] >= 28.0]
                     
                     mp_area = 0.0 # 记录真正主峰(IgG)的面积
-                    if not late_peaks.empty and late_peaks['Purity'].max() >= 0.2:
+                    dominant_peaks = peaks_df[(peaks_df['Purity'] >= 20.0) & (peaks_df['Area'] > 415.0)]
+                    if not dominant_peaks.empty:
+                        # 若存在明确高纯度、高面积主峰，优先相信实际最大主峰时间；兼容 22s 左右的正常 NR 主峰。
+                        mp_idx = dominant_peaks['Purity'].idxmax()
+                        mp_row = peaks_df.loc[mp_idx]
+                        mp_time = mp_row['Migration Time']
+                        mp_purity = mp_row['Purity']
+                        mp_area = float(mp_row['Area'])
+                        fragments = peaks_df[peaks_df['Migration Time'] < mp_time]['Purity'].sum()
+                    elif not late_peaks.empty and late_peaks['Purity'].max() >= 0.2:
                         # 形态1：存在真实的晚出峰IgG（即使它降解得很严重，只要纯度>0.2%，它就是我们要找的目标）
                         mp_idx = late_peaks['Purity'].idxmax()
                         mp_row = peaks_df.loc[mp_idx]
