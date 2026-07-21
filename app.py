@@ -11,7 +11,7 @@ from decimal import Decimal, ROUND_HALF_UP
 # 页面配置
 st.set_page_config(page_title="CE-SDS 自动提取器", page_icon="🧪", layout="centered")
 
-# 配置默认 DeepSeek API
+# 配置百炼 API
 DEFAULT_API_KEY = "sk-7e3a55feab1e48908c0d944f8792458e"
 
 def parse_page_with_llm(client, page_num, page_text):
@@ -81,13 +81,17 @@ st.markdown("""
 """)
 
 with st.expander("⚙️ 高级设置 (可选)"):
-    api_key_input = st.text_input("DeepSeek API Key (已内置默认 Key)", value=DEFAULT_API_KEY, type="password")
+    api_key_input = st.text_input("百炼 API Key (已内置默认 Key)", value=DEFAULT_API_KEY, type="password")
 
 # 文件上传组件
 uploaded_file = st.file_uploader("📂 请拖拽或点击上传 PDF 报告文件", type="pdf")
 
 if uploaded_file is not None:
     if st.button("🚀 一键开始提取", type="primary"):
+        if not api_key_input:
+            st.error("请先输入百炼 API Key。")
+            st.stop()
+
         # 进度指示器
         progress_bar = st.progress(0)
         status_text = st.empty()
