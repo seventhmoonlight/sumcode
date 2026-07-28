@@ -107,7 +107,15 @@ if uploaded_file is not None:
                 client = OpenAI(api_key=api_key_input, base_url="https://dashscope.aliyuncs.com/compatible-mode/v1")
                 
                 # 提取纯文本
-                texts = [(i+1, p.extract_text()) for i, p in enumerate(pages) if p.extract_text()]
+                texts = []
+                for i, p in enumerate(pages):
+                    page_text = p.extract_text()
+                    if page_text:
+                        texts.append((i + 1, page_text))
+
+                if not texts:
+                    st.error("No readable text was extracted from this PDF. Please check whether it is a scanned-image PDF.")
+                    st.stop()
                 
                 parsed_data = []
                 completed = 0
@@ -117,7 +125,8 @@ if uploaded_file is not None:
                     futures = {executor.submit(parse_page_with_llm, client, page_num, text): page_num for page_num, text in texts}
                     for future in concurrent.futures.as_completed(futures):
                         page_num, data = future.result()
-                        if data and 'Peaks' in data and len(data['Peaks']) > 0:
+                        peaks = data.get('Peaks') if isinstance(data, dict) else None
+                        if isinstance(peaks, list) and len(peaks) > 0:
                             parsed_data.append((page_num, data))
                         completed += 1
                         # 更新进度条
