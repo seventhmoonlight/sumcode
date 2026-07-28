@@ -186,15 +186,16 @@ if uploaded_file is not None:
                     # 按照领导指示：主峰通常是最后的那个峰（通常在 28s 之后）
                     late_peaks = peaks_df[peaks_df['Migration Time'] >= 28.0]
                     
-                    mp_area = 0.0 # 记录真正主峰(IgG)的面积
-                    dominant_peaks = peaks_df[(peaks_df['Purity'] >= 20.0) & (peaks_df['Area'] > 415.0)]
+                    dominant_peaks = peaks_df[
+                        (peaks_df['Purity'] >= 20.0) &
+                        (peaks_df['Area'] > 415.0)
+                    ]
                     if not dominant_peaks.empty:
                         # 若存在明确高纯度、高面积主峰，优先相信实际最大主峰时间；兼容 22s 左右的正常 NR 主峰。
                         mp_idx = dominant_peaks['Purity'].idxmax()
                         mp_row = peaks_df.loc[mp_idx]
                         mp_time = mp_row['Migration Time']
                         mp_purity = mp_row['Purity']
-                        mp_area = float(mp_row['Area'])
                         fragments = peaks_df[peaks_df['Migration Time'] < mp_time]['Purity'].sum()
                     elif not late_peaks.empty and late_peaks['Purity'].max() >= 0.2:
                         # 形态1：存在真实的晚出峰IgG（即使它降解得很严重，只要纯度>0.2%，它就是我们要找的目标）
@@ -202,7 +203,6 @@ if uploaded_file is not None:
                         mp_row = peaks_df.loc[mp_idx]
                         mp_time = mp_row['Migration Time']
                         mp_purity = mp_row['Purity']
-                        mp_area = float(mp_row['Area'])
                         # Fragments 为该最终主峰之前的所有峰（主峰后面的碎片峰坚决不计入）
                         fragments = peaks_df[peaks_df['Migration Time'] < mp_time]['Purity'].sum()
                     else:
@@ -210,7 +210,6 @@ if uploaded_file is not None:
                         candidates = peaks_df[peaks_df['Purity'] > max_purity * 0.2].sort_values('Migration Time')
                         if not candidates.empty:
                             mp_purity = candidates['Purity'].sum()
-                            mp_area = float(candidates['Area'].sum())
                             first_mp_time = candidates.iloc[0]['Migration Time']
                             # Fragments 为第一个主峰之前的所有碎峰
                             fragments = peaks_df[peaks_df['Migration Time'] < first_mp_time]['Purity'].sum()
@@ -219,36 +218,12 @@ if uploaded_file is not None:
                             mp_idx = peaks_df['Purity'].idxmax()
                             mp_time = peaks_df.loc[mp_idx, 'Migration Time']
                             mp_purity = peaks_df.loc[mp_idx, 'Purity']
-                            mp_area = float(peaks_df.loc[mp_idx, 'Area'])
                             fragments = peaks_df[peaks_df['Migration Time'] < mp_time]['Purity'].sum()
-                    
-                    # 浓度过滤：真正的汇报主峰 (IgG) 的 Area 不超过 415
-                    if pd.isna(mp_area) or mp_area <= 415.0:
-                        result_row['Fragments'] = '结果见图谱，供参考'
-                        result_row['NR-MP/IgG'] = '结果见图谱，供参考'
-                        all_results.append(result_row)
-                        continue
                         
                     result_row['Fragments'] = round_half_up_1(fragments)
                     result_row['NR-MP/IgG'] = round_half_up_1(mp_purity)
                 else:
                     # 还原(R)逻辑：处理 LC/HC 类型 和 特殊 R-MP 类型
-                    # 浓度过滤标志：除第一行（系统峰）外，所有峰的 Area 最大值不超过 415
-                    is_r_low_concentration = False
-                    if len(peaks_df) > 1:
-                        max_area_excluding_first = peaks_df.iloc[1:]['Area'].max()
-                        if pd.isna(max_area_excluding_first) or max_area_excluding_first <= 415:
-                            is_r_low_concentration = True
-                    else:
-                        # 如果只有一个峰（连主峰都没有，只有系统峰），也视为浓度太低
-                        is_r_low_concentration = True
-
-                    if is_r_low_concentration:
-                        result_row['LC+HC'] = '结果见图谱，供参考'
-                        result_row['NGHC'] = '结果见图谱，供参考'
-                        result_row['R-MP'] = '结果见图谱，供参考'
-                        all_results.append(result_row)
-                        continue
 
                     # 恢复拓扑骨架的准入门槛到 >5.0%，保证最大间隙算法绝对稳定 (不受微小噪音干扰破坏形态)
                     candidates = peaks_df[peaks_df['Purity'] > 5.0].sort_values('Migration Time')
