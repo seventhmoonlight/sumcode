@@ -239,9 +239,21 @@ if uploaded_file is not None:
                                     max_gap = gap
                                     split_idx = i
                                     
-                            # 动态形态判定：如果最大的断层间隙大于 3.0s，说明是明显的 LC 和 HC 分离形态
-                            # 如果小于等于 3.0s，说明所有主峰紧紧挤在一起(如21s~25s)，属于 R-MP 融合蛋白形态
-                            if max_gap > 3.0:
+                            first_hc_time = candidates.iloc[split_idx]['Migration Time']
+                            borderline_nghc = peaks_df[
+                                (peaks_df['Migration Time'] >= first_hc_time - 1.2) &
+                                (peaks_df['Migration Time'] <= first_hc_time - 0.2) &
+                                (peaks_df['Purity'] >= 0.05) &
+                                (peaks_df['Purity'] <= 5.0)
+                            ]
+
+                            # 保留原有 >3.0s 的 LC/HC 规则。仅对 2.0~3.0s 的边界形态，
+                            # 在 HC 前方同时存在 NGHC 特征峰时，补充判定为 LC/HC。
+                            is_borderline_lc_hc = (
+                                2.0 < max_gap <= 3.0 and
+                                not borderline_nghc.empty
+                            )
+                            if max_gap > 3.0 or is_borderline_lc_hc:
                                 # 以最大间隙为界，前面全是 LC，后面全是 HC
                                 lc_group = candidates.iloc[:split_idx]
                                 hc_group = candidates.iloc[split_idx:]
@@ -264,6 +276,11 @@ if uploaded_file is not None:
                                 # 强制规则：对于名称中包含 'REP' 的样品，跳过纯度下限阈值，只要在时间窗内就算 NGHC
                                 if 'REP' in sample_upper:
                                     valid_nghc = nghc_candidates[nghc_candidates['Purity'] <= 5.0]
+                                elif is_borderline_lc_hc:
+                                    valid_nghc = nghc_candidates[
+                                        (nghc_candidates['Purity'] >= 0.05) &
+                                        (nghc_candidates['Purity'] <= 5.0)
+                                    ]
                                 else:
                                     valid_nghc = nghc_candidates[
                                         (nghc_candidates['Purity'] >= 0.1) & 
