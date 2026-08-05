@@ -253,7 +253,17 @@ if uploaded_file is not None:
                                 2.0 < max_gap <= 3.0 and
                                 not borderline_nghc.empty
                             )
-                            if max_gap > 3.0 or is_borderline_lc_hc:
+                            terminal_peak = candidates.iloc[-1]
+                            earlier_major_purity = candidates.iloc[:-1]['Purity'].sum()
+                            # 典型双峰 LC/HC：末端 HC 占主导，前方 LC 保持合理比例。
+                            # 该补充形态不改变普通双峰 R-MP 或单峰样品的原有路径。
+                            is_terminal_hc_pattern = (
+                                len(candidates) == 2 and
+                                terminal_peak['Migration Time'] >= 25.0 and
+                                terminal_peak['Purity'] >= 70.0 and
+                                5.0 <= earlier_major_purity <= 30.0
+                            )
+                            if max_gap > 3.0 or is_borderline_lc_hc or is_terminal_hc_pattern:
                                 # 以最大间隙为界，前面全是 LC，后面全是 HC
                                 lc_group = candidates.iloc[:split_idx]
                                 hc_group = candidates.iloc[split_idx:]
