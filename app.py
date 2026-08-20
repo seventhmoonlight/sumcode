@@ -319,9 +319,20 @@ if uploaded_file is not None:
                             if first_major_time >= 22.0:
                                 result_row['R-MP'] = round_half_up_1(candidates.iloc[0]['Purity'])
                             else:
-                                # 同样放宽加和基数
-                                valid_sum_peaks = peaks_df[peaks_df['Purity'] >= 2.0]
-                                result_row['LC+HC'] = round_half_up_1(valid_sum_peaks['Purity'].sum())
+                                major_peak = candidates.iloc[0]
+                                other_peaks = peaks_df[peaks_df.index != major_peak.name]
+                                is_single_dominant_lc_hc = (
+                                    major_peak['Purity'] >= 90.0 and
+                                    (other_peaks.empty or other_peaks['Purity'].max() <= 5.0)
+                                )
+
+                                if is_single_dominant_lc_hc:
+                                    # 单个高占比 LC/HC 骨架峰：后置小峰属于杂质，不参与 LC+HC 加和。
+                                    result_row['LC+HC'] = round_half_up_1(major_peak['Purity'])
+                                else:
+                                    # 保留既有单峰兜底行为，避免改变其他已验证样品。
+                                    valid_sum_peaks = peaks_df[peaks_df['Purity'] >= 2.0]
+                                    result_row['LC+HC'] = round_half_up_1(valid_sum_peaks['Purity'].sum())
                                 result_row['NGHC'] = 0.0
                         
                 all_results.append(result_row)
